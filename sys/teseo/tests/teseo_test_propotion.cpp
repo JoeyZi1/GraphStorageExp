@@ -1,5 +1,5 @@
 //
-// Created by yzy on 5/14/24.
+// Created by zxy on 5/8/22.
 //
 
 #include "teseo_test.h"
@@ -78,11 +78,44 @@ void insert_read(graph &GA, std::vector<uint32_t> &new_srcs, std::vector<uint32_
     auto routine_insert_edges = [&GA, &new_srcs, &new_dests, &query_srcs, &query_dests](int thread_id, uint64_t start, uint64_t length){
         GA.register_thread();
         for(int64_t pos = start, end = start + length; pos < end; pos++){
+            // while(1){
+            //     try{
+            //         auto tx = GA.start_transaction();
+            //         if(new_srcs[pos]!= new_dests[pos] && !tx.has_edge(new_srcs[pos], new_dests[pos])) {
+            //             tx.insert_edge(new_srcs[pos], new_dests[pos], 1.0);
+            //             tx.commit();
+            //         }
+            //         break;
+            //     }
+            //     catch (exception e){
+            //         continue;
+            //     }
+            // }
+
+
+            for(int64_t n = 0; n < 9; n++){
+                while(1){
+                    try{
+                        auto tx = GA.start_transaction();
+                        if(new_srcs[pos*9+n]!= new_dests[pos*9+n] && !tx.has_edge(new_srcs[pos*9+n], new_dests[pos*9+n])) {
+                            tx.insert_edge(new_srcs[pos*9+n], new_dests[pos*9+n], 1.0);
+                            tx.commit();
+                        }
+                        break;
+                    }
+                    catch (exception e){
+                        continue;
+                    }
+                }
+            }
+
+
+
             while(1){
                 try{
                     auto tx = GA.start_transaction();
-                    if(new_srcs[pos]!= new_dests[pos] && !tx.has_edge(new_srcs[pos], new_dests[pos])) {
-                        tx.insert_edge(new_srcs[pos], new_dests[pos], 1.0);
+                    if(tx.has_edge(query_srcs[pos], query_dests[pos])) {
+                        volatile auto result = tx.get_weight(query_srcs[pos], query_dests[pos]);
                         tx.commit();
                     }
                     break;
@@ -91,22 +124,28 @@ void insert_read(graph &GA, std::vector<uint32_t> &new_srcs, std::vector<uint32_
                     continue;
                 }
             }
-            while(1){
-                try{
-                    auto tx = GA.start_transaction();
-                    volatile auto result = tx.has_edge(query_srcs[pos], query_dests[pos]); // use volatile to make sure has_edge() is executed
-                    tx.commit();
-                    break;
-                }
-                catch (exception e){
-                    continue;
-                }
-            }
+
+            // for(int64_t n = 0; n < 9; n++){
+            //     while(1){
+            //         try{
+            //             auto tx = GA.start_transaction();
+            //             if(tx.has_edge(query_srcs[pos*9+n], query_dests[pos*9+n])) {
+            //                 volatile auto result = tx.get_weight(query_srcs[pos*9+n], query_dests[pos*9+n]);
+            //             }
+            //             tx.commit();
+            //             break;
+            //         }
+            //         catch (exception e){
+            //             continue;
+            //         }
+            //     }
+            // }
         }
         GA.unregister_thread();
     };
-    int64_t edges_per_thread = new_srcs.size() / num_threads;
-    int64_t odd_threads = new_srcs.size() % num_threads;
+    int64_t smaller_size = new_srcs.size() < query_srcs.size() ? new_srcs.size() : query_srcs.size();
+    int64_t edges_per_thread = smaller_size / num_threads;
+    int64_t odd_threads = smaller_size % num_threads;
     vector<thread> threads;
     int64_t start = 0;
     for(int thread_id = 0; thread_id < num_threads; thread_id ++){
@@ -160,8 +199,8 @@ void batch_ins_del_read(commandLine& P){
     std::ofstream log_file(log, ios::app);
 
     // std::vector<uint32_t> update_sizes = {10,100,1000,10000,100000,1000000,10000000};
-    std::vector<uint32_t> update_sizes = {500000};
-    std::vector<uint32_t> update_sizes2 = {500000};
+    std::vector<uint32_t> update_sizes = {900000};
+    std::vector<uint32_t> update_sizes2 = {100000};
     std::vector<double> avg_insert, avg_delete;
     avg_insert.clear(); avg_delete.clear();
     for(size_t i=0; i<update_sizes.size(); i++) avg_insert.push_back(0.0), avg_delete.push_back(0.0);
@@ -205,14 +244,7 @@ void batch_ins_del_read(commandLine& P){
             }
 
             gettimeofday(&t_start, &tzp);
-            // mix operation
             insert_read(Ga, new_srcs, new_dests, query_srcs, query_dests, thd_num);
-            
-            // contrast test, do insert and read in group
-            // insert_edges(Ga, new_srcs, new_dests, thd_num);
-            // read_edges(Ga, query_srcs, query_dests, thd_num);
-
-
             gettimeofday(&t_end, &tzp);
             avg_insert[us] += cal_time_elapsed(&t_start, &t_end);
 
@@ -223,7 +255,7 @@ void batch_ins_del_read(commandLine& P){
 
     for (size_t us=0; us<update_sizes.size(); us++){
         double time_i = (double) avg_insert[us] / n_trials;
-        double insert_throughput = 2 * update_sizes[us] / time_i; // 5:5 needs double
+        double insert_throughput = (update_sizes[us] + update_sizes2[us]) / time_i;
         printf("batch_size = %zu, average latency: %f, throughput %e\n", update_sizes[us], time_i, insert_throughput);
         log_file<< gname<<","<<thd_num<<",e,insert-read,"<< update_sizes[us] <<"-" << update_sizes2[us]<<","<<insert_throughput << ",trials," << n_trials << "\n";
     }
