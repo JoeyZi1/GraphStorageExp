@@ -1,3 +1,8 @@
+
+//
+// Created by zxy on 5/4/22.
+//
+
 #include "pcsr_test.h"
 
 void batch_ins_del_read(commandLine& P){
@@ -80,7 +85,7 @@ void batch_ins_del_read(commandLine& P){
 
         }
         double time_i = (double) avg_insert / n_trials;
-        double insert_throughput = 1000000 / time_i;
+        double insert_throughput = (updates_to_run + updates_to_run2) / time_i;
         printf("batch_size = %zu, average insert: %f, throughput %e\n", updates_to_run, time_i, insert_throughput);
         log_file<< gname<<","<<thd_num<<",e,insert-read,"<< update_sizes[us] <<"-" << update_sizes2[us]<<","<<insert_throughput << "\n";
     }
